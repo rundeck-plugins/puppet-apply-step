@@ -1,0 +1,31 @@
+name: puppet-apply-step
+version: 1.0
+rundeckPluginVersion: 1.0
+author: Alex Honor
+date: 05/21/14
+providers:
+  - name: puppet-apply-step
+    service: RemoteScriptNodeStep
+    title: Puppet Apply
+    description: Apply a standalone Puppet manifest to the local system.
+    plugin-type: script
+    script-interpreter: /bin/bash
+    script-file: puppet_apply
+    script-args: '${config.sudo} ${job.loglevel} ${config.manifest} ${config.arguments}'
+    config:
+      - type: String
+        name: manifest
+        title: Manifest
+        description: The puppet manifest file
+        required: true
+      - type: String
+        name: arguments
+        title: Arguments
+        description: Arguments to pass to puppet apply
+        default: ""
+      - type: Boolean
+        name: sudo
+        title: Sudo
+        description: Execute puppet using sudo
+        default: false
+
