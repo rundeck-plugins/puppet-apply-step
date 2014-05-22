@@ -18,7 +18,7 @@ else PUPPET_CMD="puppet apply"
 fi
 
 if [[ "${LOGLEVEL}" == DEBUG ]]
-then PUPPET_CMD="$PUPPET_CMD --verbose"
+then PUPPET_CMD="$PUPPET_CMD --debug"
 fi
 
 printf >&2 "Executing : $PUPPET_CMD $@ $MANIFEST\n"
