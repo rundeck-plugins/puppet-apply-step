@@ -30,6 +30,8 @@ produces:
 
     puppet-apply.zip
 
+...then,
+
     make install
 
 Copies it to $RDECK_BASE/libext    
