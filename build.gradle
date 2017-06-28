@@ -1,0 +1,40 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
+plugins {
+    id 'pl.allegro.tech.build.axion-release' version '1.7.0'
+}
+
+ext.pluginName = 'puppet-apply-step'
+ext.pluginDescription = "executes the puppet apply command on each node matching the Job node filter"
+ext.sopsCopyright = "© 2017, Rundeck, Inc."
+ext.sopsUrl = "http://rundeck.com"
+ext.buildDateString=new Date().format("yyyy-MM-dd'T'HH:mm:ssX")
+ext.archivesBaseName = "puppet-apply-step"
+ext.pluginBaseFolder = "puppet-apply-step"
+
+
+scmVersion {
+    ignoreUncommittedChanges = true
+    tag {
+        prefix = 'v'
+        versionSeparator = ''
+        def origDeserialize=deserialize
+        //apend .0 to satisfy semver if the tag version is only X.Y
+        deserialize = { config, position, tagName ->
+            def orig = origDeserialize(config, position, tagName)
+            if (orig.split('\\.').length < 3) {
+                orig += ".0"
+            }
+            orig
+        }
+    }
+}
+
+project.version = scmVersion.version
+ext.archiveFilename = ext.archivesBaseName + '-' + version 
+
+apply from: 'https://raw.githubusercontent.com/ltamaster/build-zip/master/build.gradle'
+
