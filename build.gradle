@@ -1,40 +1,114 @@
-buildscript {
-    repositories {
-        mavenCentral()
-    }
-}
+import org.apache.tools.ant.filters.ReplaceTokens
+
 plugins {
-    id 'pl.allegro.tech.build.axion-release' version '1.7.0'
+    id 'pl.allegro.tech.build.axion-release' version '1.18.6'
+    id 'maven-publish'
 }
 
+repositories {
+    mavenCentral()
+}
+
+// Set extension properties
 ext.pluginName = 'puppet-apply-step'
 ext.pluginDescription = "executes the puppet apply command on each node matching the Job node filter"
-ext.sopsCopyright = "© 2017, Rundeck, Inc."
-ext.sopsUrl = "http://rundeck.com"
-ext.buildDateString=new Date().format("yyyy-MM-dd'T'HH:mm:ssX")
+ext.sopsCopyright = "© 2025, Rundeck, Inc."
+ext.sopsUrl = "https://rundeck.com"
+ext.buildDateString = new Date().format("yyyy-MM-dd'T'HH:mm:ssX")
 ext.archivesBaseName = "puppet-apply-step"
 ext.pluginBaseFolder = "puppet-apply-step"
-
 
 scmVersion {
     ignoreUncommittedChanges = true
     tag {
         prefix = 'v'
         versionSeparator = ''
-        def origDeserialize=deserialize
-        //apend .0 to satisfy semver if the tag version is only X.Y
-        deserialize = { config, position, tagName ->
-            def orig = origDeserialize(config, position, tagName)
-            if (orig.split('\\.').length < 3) {
-                orig += ".0"
-            }
-            orig
-        }
     }
 }
 
 project.version = scmVersion.version
-ext.archiveFilename = ext.archivesBaseName + '-v' + version 
 
-apply from: 'https://raw.githubusercontent.com/ltamaster/build-zip/master/build.gradle'
+task prepareZipContents {
+    doLast {
+        def assetsMap = new Properties()
+        def tokens = assetsMap + [
+            version    : version,
+            date       : new Date().toString(),
+            author     : sopsCopyright,
+            url        : sopsUrl,
+            title      : pluginName,
+            description: pluginDescription,
+            name       : archivesBaseName.toString(),
+        ]
+
+        copy {
+            from("${project.projectDir}/puppet-apply-step/resources") {
+                include '**/*.png'
+                into "resources"
+            }
+
+            from("${project.projectDir}/puppet-apply-step/contents") {
+                into "contents"
+            }
+
+            from("${project.projectDir}/puppet-apply-step/plugin.yaml") {
+                filter(ReplaceTokens, tokens: tokens)
+                exclude '**/*.png'
+            }
+
+            into "${project.buildDir}/zip-contents"
+        }
+    }
+}
+
+// Create the plugin zip task using modern Gradle syntax
+task pluginZip(type: Jar) {
+    dependsOn 'prepareZipContents'
+    archiveBaseName = project.ext.archivesBaseName
+    archiveVersion = project.version
+    archiveClassifier = ''
+    archiveExtension = 'zip'
+    destinationDirectory = file("${buildDir}/libs")
+
+    from("${project.buildDir}/zip-contents") {
+        include("*.yaml")
+        include("resources/*")
+        include("contents/*")
+        into("${project.ext.archivesBaseName}-v${version}")
+    }
+
+    manifest {
+        attributes(
+            'Rundeck-Plugin-Name': pluginName.toString(),
+            'Rundeck-Plugin-Description': pluginDescription.toString(),
+            'Rundeck-Plugin-Archive': 'true',
+            'Rundeck-Plugin-File-Version': version,
+            'Rundeck-Plugin-Author': sopsCopyright,
+            'Rundeck-Plugin-URL': sopsUrl,
+            'Rundeck-Plugin-Date': buildDateString
+        )
+    }
+}
+
+publishing {
+    publications {
+        mavenZip(MavenPublication) {
+            artifact pluginZip
+        }
+    }
+}
+
+defaultTasks 'clean', 'build', 'pluginZip'
+
+task build {
+    dependsOn 'pluginZip'
+}
+
+task install {
+    dependsOn 'build', 'publishToMavenLocal'
+}
+
+task clean(type: Delete) {
+    delete 'build'
+}
 
