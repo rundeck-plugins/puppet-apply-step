@@ -4,10 +4,12 @@ buildscript {
     }
 }
 plugins {
-    id 'pl.allegro.tech.build.axion-release' version '1.7.0'
+    id 'base'
+    id 'pl.allegro.tech.build.axion-release' version '1.17.2'
+    id 'maven-publish'
 }
 
-group = 'com.github.rundeck-plugins'
+group = 'com.rundeck.plugins'
 
 ext.pluginName = 'puppet-apply-step'
 ext.pluginDescription = "executes the puppet apply command on each node matching the Job node filter"
@@ -17,28 +19,88 @@ ext.buildDateString=new Date().format("yyyy-MM-dd'T'HH:mm:ssX")
 ext.archivesBaseName = "puppet-apply-step"
 ext.pluginBaseFolder = "."
 
-
 scmVersion {
-    ignoreUncommittedChanges = true
+    ignoreUncommittedChanges = false
     tag {
-        prefix = 'v'
+        prefix = ''           // NO "v" prefix - see PLUGIN_TAGGING_ARCHITECTURE.md
         versionSeparator = ''
-        def origDeserialize=deserialize
-        //apend .0 to satisfy semver if the tag version is only X.Y
-        deserialize = { config, position, tagName ->
-            def orig = origDeserialize(config, position, tagName)
-            if (orig.split('\\.').length < 3) {
-                orig += ".0"
-            }
-            orig
-        }
+    }
+    versionCreator 'simple'  // Use simple version creator (just tag name)
+}
+
+version = scmVersion.version  // Dynamic version from git tag
+
+// ZIP plugin task - must use Jar type for proper manifest handling
+task pluginZip(type: Jar) {
+    archiveBaseName = archivesBaseName
+    archiveVersion = version
+    archiveClassifier = ''
+    archiveExtension = 'zip'
+    destinationDirectory = layout.buildDirectory.dir('libs')
+
+    from(layout.buildDirectory.dir('zip-contents')) {
+        include('*.yaml')
+        include('contents/*')
+        into("${archivesBaseName}-" + project.version.toString())
+    }
+
+    manifest {
+        attributes(
+            'Rundeck-Plugin-Name': pluginName,
+            'Rundeck-Plugin-Description': pluginDescription,
+            'Rundeck-Plugin-Archive': 'true',
+            'Rundeck-Plugin-File-Version': project.version.toString(),
+            'Rundeck-Plugin-Author': sopsCopyright,
+            'Rundeck-Plugin-URL': sopsUrl,
+            'Rundeck-Plugin-Date': buildDateString
+        )
     }
 }
 
-// Override version for Grails 7 upgrade (remove "v" prefix)
-// project.version = scmVersion.version
-project.version = '2.0.4-grails7-upgrade-test'
-ext.archiveFilename = ext.archivesBaseName + '-' + version 
+pluginZip.doFirst {
+    copy {
+        from(file('contents')) {
+            into('contents')
+        }
 
-apply from: 'https://raw.githubusercontent.com/rundeck-plugins/build-zip/gradle-5.6/build.gradle'
+        from('plugin.yaml')
+
+        into(layout.buildDirectory.dir('zip-contents'))
+    }
+}
+
+// Wire into build lifecycle
+assemble.dependsOn pluginZip
+
+publishing {
+    publications {
+        mavenZip(MavenPublication) {
+            groupId = 'com.rundeck.plugins'
+            artifactId = 'puppet-apply-step'
+            version = project.version
+            
+            artifact(pluginZip) {
+                extension = 'jar'  // Publish as .jar to Maven (it's actually a zip)
+            }
+            
+            pom {
+                packaging = 'jar'
+            }
+        }
+    }
+    
+    repositories {
+        maven {
+            name = "PackageCloudTest"
+            url = uri("https://packagecloud.io/pagerduty/rundeckpro-test/maven2")
+            authentication {
+                header(HttpHeaderAuthentication)
+            }
+            credentials(HttpHeaderCredentials) {
+                name = "Authorization"
+                value = "Bearer " + (System.getenv("PKGCLD_WRITE_TOKEN") ?: project.findProperty("pkgcldWriteToken"))
+            }
+        }
+    }
+}
 
