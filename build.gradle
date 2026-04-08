@@ -1,88 +1,62 @@
 import org.apache.tools.ant.filters.ReplaceTokens
 
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
 plugins {
-    id 'pl.allegro.tech.build.axion-release' version '1.18.6'
-    id 'maven-publish'
+    id 'base'
+    id 'pl.allegro.tech.build.axion-release' version '1.17.2'
+    id 'io.github.gradle-nexus.publish-plugin' version '2.0.0'
 }
 
-repositories {
-    mavenCentral()
-}
+group = 'org.rundeck.plugins'
 
-// Set extension properties
 ext.pluginName = 'puppet-apply-step'
 ext.pluginDescription = "executes the puppet apply command on each node matching the Job node filter"
-ext.sopsCopyright = "© 2025, Rundeck, Inc."
-ext.sopsUrl = "https://rundeck.com"
-ext.buildDateString = new Date().format("yyyy-MM-dd'T'HH:mm:ssX")
+ext.sopsCopyright = "© 2017, Rundeck, Inc."
+ext.sopsUrl = "http://rundeck.com"
+ext.buildDateString=new Date().format("yyyy-MM-dd'T'HH:mm:ssX")
 ext.archivesBaseName = "puppet-apply-step"
-ext.pluginBaseFolder = "puppet-apply-step"
+ext.pluginBaseFolder = "."
 
 scmVersion {
-    ignoreUncommittedChanges = true
+    ignoreUncommittedChanges = false
     tag {
-        prefix = 'v'
+        prefix = ''           // NO "v" prefix - see PLUGIN_TAGGING_ARCHITECTURE.md
         versionSeparator = ''
     }
+    versionCreator 'simple'  // Use simple version creator (just tag name)
 }
 
-project.version = scmVersion.version
+version = scmVersion.version  // Dynamic version from git tag
+ext.publishName = "Puppet Apply Step ${project.version}"
+ext.githubSlug = 'rundeck-plugins/puppet-apply-step'
+ext.developers = [
+        [id: 'gschueler', name: 'Greg Schueler', email: 'greg@rundeck.com']
+]
 
-task prepareZipContents {
-    doLast {
-        def assetsMap = new Properties()
-        def tokens = assetsMap + [
-            version    : version,
-            date       : new Date().toString(),
-            author     : sopsCopyright,
-            url        : sopsUrl,
-            title      : pluginName,
-            description: pluginDescription,
-            name       : archivesBaseName.toString(),
-        ]
-
-        copy {
-            from("${project.projectDir}/puppet-apply-step/resources") {
-                include '**/*.png'
-                into "resources"
-            }
-
-            from("${project.projectDir}/puppet-apply-step/contents") {
-                into "contents"
-            }
-
-            from("${project.projectDir}/puppet-apply-step/plugin.yaml") {
-                filter(ReplaceTokens, tokens: tokens)
-                exclude '**/*.png'
-            }
-
-            into "${project.buildDir}/zip-contents"
-        }
-    }
-}
-
-// Create the plugin zip task using modern Gradle syntax
+// ZIP plugin task - must use Jar type for proper manifest handling
 task pluginZip(type: Jar) {
-    dependsOn 'prepareZipContents'
-    archiveBaseName = project.ext.archivesBaseName
-    archiveVersion = project.version
+    archiveBaseName = archivesBaseName
+    archiveVersion = version
     archiveClassifier = ''
     archiveExtension = 'zip'
-    destinationDirectory = file("${buildDir}/libs")
+    destinationDirectory = layout.buildDirectory.dir('libs')
 
-    from("${project.buildDir}/zip-contents") {
-        include("*.yaml")
-        include("resources/*")
-        include("contents/*")
-        into("${project.ext.archivesBaseName}-v${version}")
+    from(layout.buildDirectory.dir('zip-contents')) {
+        include('*.yaml')
+        include('contents/*')
+        into("${archivesBaseName}-" + project.version.toString())
     }
 
     manifest {
         attributes(
-            'Rundeck-Plugin-Name': pluginName.toString(),
-            'Rundeck-Plugin-Description': pluginDescription.toString(),
+            'Rundeck-Plugin-Name': pluginName,
+            'Rundeck-Plugin-Description': pluginDescription,
             'Rundeck-Plugin-Archive': 'true',
-            'Rundeck-Plugin-File-Version': version,
+            'Rundeck-Plugin-File-Version': project.version.toString(),
             'Rundeck-Plugin-Author': sopsCopyright,
             'Rundeck-Plugin-URL': sopsUrl,
             'Rundeck-Plugin-Date': buildDateString
@@ -90,25 +64,43 @@ task pluginZip(type: Jar) {
     }
 }
 
-publishing {
-    publications {
-        mavenZip(MavenPublication) {
-            artifact pluginZip
+pluginZip.doFirst {
+    def assetsMap = new Properties()
+    def tokens = assetsMap + [
+            version    : project.version.toString(),
+            date       : buildDateString,
+            author     : sopsCopyright,
+            url        : sopsUrl,
+            title      : pluginName,
+            description: pluginDescription,
+            name       : archivesBaseName,
+    ]
+
+    copy {
+        from(file('contents')) {
+            into('contents')
+        }
+
+        from('plugin.yaml') {
+            filter(ReplaceTokens, tokens: tokens)
+            exclude('**/*.png')
+        }
+
+        into(layout.buildDirectory.dir('zip-contents'))
+    }
+}
+
+// Wire into build lifecycle
+assemble.dependsOn pluginZip
+
+nexusPublishing {
+    packageGroup = 'org.rundeck.plugins'
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://central.sonatype.com/repository/maven-snapshots/"))
         }
     }
 }
 
-defaultTasks 'clean', 'build', 'pluginZip'
-
-task build {
-    dependsOn 'pluginZip'
-}
-
-task install {
-    dependsOn 'build', 'publishToMavenLocal'
-}
-
-task clean(type: Delete) {
-    delete 'build'
-}
-
+apply from: "${rootDir}/gradle/publishing.gradle"
